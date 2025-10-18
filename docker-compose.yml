@@ -1,0 +1,18 @@
+services:
+  memebot:
+    build: .
+    container_name: memebot
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - OWNER_ID=${OWNER_ID}
+      - CHANNEL_ID=${CHANNEL_ID}
+    volumes:
+      # Persist database between container restarts
+      - ./data:/app/data
+    # Optional: Add logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
