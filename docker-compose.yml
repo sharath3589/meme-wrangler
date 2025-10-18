@@ -1,7 +1,7 @@
 services:
-  memebot:
+  meme-wrangler:
     build: .
-    container_name: memebot
+    container_name: meme-wrangler
     restart: unless-stopped
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
