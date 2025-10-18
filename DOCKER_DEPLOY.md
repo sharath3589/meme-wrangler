@@ -1,6 +1,6 @@
-# Memebot Docker Deployment Guide
+# Meme Wrangler Bot - Docker Deployment Guide
 
-This guide covers how to run your Telegram memebot using Docker.
+This guide covers how to run your Telegram Meme Wrangler Bot using Docker.
 
 ## Prerequisites
 
@@ -71,7 +71,7 @@ That's it! Your bot is now running in Docker! 🎉
 ### Build the Image
 
 ```bash
-docker build -t memebot .
+docker build -t meme-wrangler .
 ```
 
 ### Run the Container
@@ -82,32 +82,32 @@ mkdir -p ./data
 
 # Run the bot (replace with your actual values)
 docker run -d \
-  --name memebot \
+  --name meme-wrangler \
   --restart unless-stopped \
   -e TELEGRAM_BOT_TOKEN="your_token_here" \
   -e OWNER_ID="your_id_here" \
   -e CHANNEL_ID="@your_channel" \
   -v $(pwd)/data:/app/data \
-  memebot
+  meme-wrangler
 ```
 
 ### Manage the Container
 
 ```bash
 # View logs
-docker logs -f memebot
+docker logs -f meme-wrangler
 
 # Stop the bot
-docker stop memebot
+docker stop meme-wrangler
 
 # Start the bot
-docker start memebot
+docker start meme-wrangler
 
 # Restart the bot
-docker restart memebot
+docker restart meme-wrangler
 
 # Remove the container
-docker rm -f memebot
+docker rm -f meme-wrangler
 
 # View container status
 docker ps -a
@@ -120,14 +120,14 @@ docker ps -a
 ```bash
 # From your Mac, copy files to server
 scp -i /path/to/ssh_key -r \
-  /Users/hyperterminal/myspace/memebot \
+  /Users/hyperterminal/myspace/meme-wrangler \
   username@server_ip:~/
 
 # SSH into server
 ssh -i /path/to/ssh_key username@server_ip
 
 # Navigate to bot directory
-cd ~/memebot
+cd ~/meme-wrangler
 
 # Create .env file
 cp .env.example .env
@@ -144,21 +144,21 @@ docker-compose logs -f
 
 ```bash
 # Tag the image
-docker tag memebot yourusername/memebot:latest
+docker tag meme-wrangler yourusername/meme-wrangler:latest
 
 # Push to Docker Hub (requires docker login)
-docker push yourusername/memebot:latest
+docker push yourusername/meme-wrangler:latest
 
 # On the server, pull and run
-docker pull yourusername/memebot:latest
+docker pull yourusername/meme-wrangler:latest
 docker run -d \
-  --name memebot \
+  --name meme-wrangler \
   --restart unless-stopped \
   -e TELEGRAM_BOT_TOKEN="your_token" \
   -e OWNER_ID="your_id" \
   -e CHANNEL_ID="@channel" \
-  -v ~/memebot-data:/app/data \
-  yourusername/memebot:latest
+  -v ~/meme-wrangler-data:/app/data \
+  yourusername/meme-wrangler:latest
 ```
 
 ## Updating the Bot
@@ -176,21 +176,21 @@ docker-compose up -d
 
 ```bash
 # Stop and remove old container
-docker stop memebot
-docker rm memebot
+docker stop meme-wrangler
+docker rm meme-wrangler
 
 # Rebuild image
-docker build -t memebot .
+docker build -t meme-wrangler .
 
 # Run new container
 docker run -d \
-  --name memebot \
+  --name meme-wrangler \
   --restart unless-stopped \
   -e TELEGRAM_BOT_TOKEN="your_token" \
   -e OWNER_ID="your_id" \
   -e CHANNEL_ID="@channel" \
   -v $(pwd)/data:/app/data \
-  memebot
+  meme-wrangler
 ```
 
 ## Data Persistence
@@ -214,16 +214,16 @@ docker ps
 docker-compose logs -f
 
 # Docker command
-docker logs -f memebot
+docker logs -f meme-wrangler
 ```
 
 ### Access container shell:
 ```bash
 # Docker Compose
-docker-compose exec memebot /bin/bash
+docker-compose exec meme-wrangler /bin/bash
 
 # Docker command
-docker exec -it memebot /bin/bash
+docker exec -it meme-wrangler /bin/bash
 ```
 
 ### Container keeps restarting:
