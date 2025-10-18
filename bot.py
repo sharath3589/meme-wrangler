@@ -324,7 +324,7 @@ async def helpcmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a detailed help message with all commands."""
     help_text = (
         """
-<b>🤖 <u>Memebot Command Reference</u> 🤖</b>
+<b>🤖 <u>Meme Wrangler Bot Command Reference</u> 🤖</b>
 
 <b>General:</b>
   <b>/start</b> — Show a welcome message.
