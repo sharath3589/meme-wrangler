@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Memebot Startup Script
+# Meme Wrangler Bot Startup Script
 # Double-click this file to start your bot
 
-cd /Users/hyperterminal/myspace/memebot
+cd /Users/hyperterminal/myspace/meme-wrangler
 source .venv/bin/activate
 
 # Set your credentials here (replace with your actual values)
@@ -12,5 +12,5 @@ export OWNER_ID="324460662"
 export CHANNEL_ID="@meme_galore"
 
 # Start the bot
-echo "Starting memebot..."
+echo "Starting Meme Wrangler Bot..."
 python3 bot.py

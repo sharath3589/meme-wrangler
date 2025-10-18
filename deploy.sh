@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Memebot Docker Deployment Script
+# Meme Wrangler Bot Docker Deployment Script
 # This script helps you deploy the bot to a remote server via SSH
 
 set -e  # Exit on error
 
 echo "======================================"
-echo "  Memebot Docker Deployment Script"
+echo "  Meme Wrangler Bot Deployment"
 echo "======================================"
 echo ""
 
@@ -39,14 +39,14 @@ echo "✓ .env file found"
 echo ""
 
 echo "Step 2: Uploading files to server..."
-ssh -i "$SSH_KEY" "$SERVER" "mkdir -p ~/memebot"
+ssh -i "$SSH_KEY" "$SERVER" "mkdir -p ~/meme-wrangler"
 scp -i "$SSH_KEY" \
     Dockerfile \
     docker-compose.yml \
     bot.py \
     requirements.txt \
     .env \
-    "$SERVER":~/memebot/
+    "$SERVER":~/meme-wrangler/
 
 echo "✓ Files uploaded"
 echo ""
@@ -70,10 +70,10 @@ echo ""
 
 echo "Step 4: Building and starting the bot..."
 ssh -i "$SSH_KEY" "$SERVER" << 'ENDSSH'
-cd ~/memebot
+cd ~/meme-wrangler
 
 # Stop existing container if running
-if docker ps -a | grep -q memebot; then
+if docker ps -a | grep -q meme-wrangler; then
     echo "Stopping existing container..."
     docker-compose down
 fi
@@ -93,12 +93,12 @@ echo ""
 echo "Your bot is now running on the server!"
 echo ""
 echo "Useful commands:"
-echo "  View logs:    ssh -i $SSH_KEY $SERVER 'cd ~/memebot && docker-compose logs -f'"
-echo "  Stop bot:     ssh -i $SSH_KEY $SERVER 'cd ~/memebot && docker-compose down'"
-echo "  Restart bot:  ssh -i $SSH_KEY $SERVER 'cd ~/memebot && docker-compose restart'"
+echo "  View logs:    ssh -i $SSH_KEY $SERVER 'cd ~/meme-wrangler && docker-compose logs -f'"
+echo "  Stop bot:     ssh -i $SSH_KEY $SERVER 'cd ~/meme-wrangler && docker-compose down'"
+echo "  Restart bot:  ssh -i $SSH_KEY $SERVER 'cd ~/meme-wrangler && docker-compose restart'"
 echo ""
 ENDSSH
 
 echo ""
 echo "Showing bot logs (press Ctrl+C to exit)..."
-ssh -i "$SSH_KEY" "$SERVER" "cd ~/memebot && docker-compose logs -f"
+ssh -i "$SSH_KEY" "$SERVER" "cd ~/meme-wrangler && docker-compose logs -f"
