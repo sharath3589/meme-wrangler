@@ -8,12 +8,16 @@ from datetime import datetime, time, timedelta
 import aiosqlite
 from typing import Optional
 import io
+import pytz
 
 from telegram import Update, Message, InputFile
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# IST timezone
+IST = pytz.timezone('Asia/Kolkata')
 
 DB_PATH = os.environ.get("MEMEBOT_DB", "memes.db")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -45,18 +49,27 @@ async def init_db():
         await db.commit()
 
 async def compute_next_slot(after_dt: Optional[datetime] = None) -> datetime:
-    """Return the next slot datetime from after_dt (exclusive). If after_dt is None, use now()."""
+    """Return the next slot datetime from after_dt (exclusive). If after_dt is None, use now() in IST.
+    All calculations and returns are in IST timezone."""
     if after_dt is None:
-        after_dt = datetime.now()
-    # check same-day slots
+        # Get current time in IST
+        after_dt = datetime.now(IST)
+    else:
+        # Ensure after_dt is timezone-aware and in IST
+        if after_dt.tzinfo is None:
+            after_dt = IST.localize(after_dt)
+        else:
+            after_dt = after_dt.astimezone(IST)
+    
+    # check same-day slots in IST
     today = after_dt.date()
     for slot in SLOTS:
-        candidate = datetime.combine(today, slot)
+        candidate = IST.localize(datetime.combine(today, slot))
         if candidate > after_dt:
             return candidate
     # otherwise next day's first slot
     next_day = today + timedelta(days=1)
-    return datetime.combine(next_day, SLOTS[0])
+    return IST.localize(datetime.combine(next_day, SLOTS[0]))
 
 async def get_last_scheduled_ts(db) -> Optional[int]:
     async with db.execute("SELECT scheduled_ts FROM memes WHERE posted=0 ORDER BY scheduled_ts DESC LIMIT 1") as cur:
@@ -69,10 +82,11 @@ async def schedule_meme(owner_file_id: str, mime_type: str) -> datetime:
         # Always schedule after the latest scheduled meme, even if it's far in the future
         last_ts = await get_last_scheduled_ts(db)
         if last_ts is None:
-            # no pending memes, schedule relative to now
-            ref_dt = datetime.now()
+            # no pending memes, schedule relative to now in IST
+            ref_dt = datetime.now(IST)
         else:
-            ref_dt = datetime.fromtimestamp(last_ts)
+            # Convert timestamp to IST-aware datetime
+            ref_dt = datetime.fromtimestamp(last_ts, tz=IST)
         next_dt = await compute_next_slot(ref_dt)
 
         # Try to get a preview file_id (for photo: smallest size, for video: thumbnail, for animation: itself)
@@ -82,13 +96,13 @@ async def schedule_meme(owner_file_id: str, mime_type: str) -> datetime:
 
         await db.execute(
             "INSERT INTO memes (owner_file_id, mime_type, scheduled_ts, created_ts, preview_file_id) VALUES (?, ?, ?, ?, ?)",
-            (owner_file_id, mime_type, int(next_dt.timestamp()), int(datetime.now().timestamp()), preview_file_id),
+            (owner_file_id, mime_type, int(next_dt.timestamp()), int(datetime.now(IST).timestamp()), preview_file_id),
         )
         await db.commit()
     return next_dt
 
 async def pop_due_memes_and_post(context: ContextTypes.DEFAULT_TYPE):
-    now_ts = int(datetime.now().timestamp())
+    now_ts = int(datetime.now(IST).timestamp())
     async with aiosqlite.connect(DB_PATH) as db:
         await init_db()
         async with db.execute("SELECT id, owner_file_id, mime_type FROM memes WHERE posted=0 AND scheduled_ts<=? ORDER BY scheduled_ts ASC", (now_ts,)) as cur:
@@ -124,12 +138,12 @@ async def pop_due_memes_and_post(context: ContextTypes.DEFAULT_TYPE):
                     await db.execute("UPDATE memes SET posted=1 WHERE id=?", (mid,))
                     await db.commit()
                     logger.info("Posted meme id=%s", mid)
-                    posting_log.append(f"[SUCCESS] Posted meme id={mid} at {datetime.now().isoformat(sep=' ')}")
+                    posting_log.append(f"[SUCCESS] Posted meme id={mid} at {datetime.now(IST).isoformat(sep=' ')}")
                     if len(posting_log) > 100:
                         posting_log.pop(0)
             except Exception as e:
                 logger.exception("Failed to post meme id=%s: %s", mid, e)
-                posting_log.append(f"[FAIL] Meme id={mid} at {datetime.now().isoformat(sep=' ')}: {type(e).__name__}: {e}")
+                posting_log.append(f"[FAIL] Meme id={mid} at {datetime.now(IST).isoformat(sep=' ')}: {type(e).__name__}: {e}")
                 if len(posting_log) > 100:
                     posting_log.pop(0)
 async def scheduled(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -173,7 +187,7 @@ async def scheduled(update: Update, context: ContextTypes.DEFAULT_TYPE):
         owner_file_id = owner_row[0] if owner_row else None
         file_id = preview_id if preview_id else owner_file_id
 
-        caption = f"ID: {mid}, Time: {datetime.fromtimestamp(ts).isoformat(sep=' ')}, Type: {mtype}"
+        caption = f"ID: {mid}, Time: {datetime.fromtimestamp(ts, tz=IST).strftime('%Y-%m-%d %H:%M:%S IST')}, Type: {mtype}"
 
         sent = False
         # Try direct sends with fallbacks
@@ -392,15 +406,8 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     scheduled_dt = await schedule_meme(file_id, mime)
-    # Convert to IST (Asia/Kolkata)
-    try:
-        import pytz
-        ist = pytz.timezone('Asia/Kolkata')
-        scheduled_dt_ist = scheduled_dt.astimezone(ist)
-    except Exception:
-        # fallback: add 5:30 manually if pytz not available
-        scheduled_dt_ist = scheduled_dt + timedelta(hours=5, minutes=30)
-    await msg.reply_text(f"Scheduled for: {scheduled_dt_ist.strftime('%Y-%m-%d %H:%M:%S')} IST")
+    # scheduled_dt is already in IST timezone
+    await msg.reply_text(f"Scheduled for: {scheduled_dt.strftime('%Y-%m-%d %H:%M:%S IST')}")
 
 async def postnow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -465,15 +472,8 @@ async def scheduleat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Invalid time format. Use 24h HH:MM.")
             return
         # Schedule meme at specified time today (IST)
-        from datetime import datetime, timedelta
-        try:
-            import pytz
-            ist = pytz.timezone('Asia/Kolkata')
-            now_ist = datetime.now(ist)
-            sched_dt = ist.localize(datetime(now_ist.year, now_ist.month, now_ist.day, hour, minute))
-        except Exception:
-            now = datetime.now()
-            sched_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0) + timedelta(hours=5, minutes=30)
+        now_ist = datetime.now(IST)
+        sched_dt = IST.localize(datetime(now_ist.year, now_ist.month, now_ist.day, hour, minute))
         sched_ts = int(sched_dt.timestamp())
         async with aiosqlite.connect(DB_PATH) as db:
             await init_db()
@@ -486,13 +486,8 @@ async def scheduleat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_id = int(m_range.group(1))
         end_id = int(m_range.group(2))
         date_str = m_range.group(3)
-        from datetime import datetime, timedelta, time as dtime
-        try:
-            import pytz
-            ist = pytz.timezone('Asia/Kolkata')
-            base_date = ist.localize(datetime.strptime(date_str, '%Y-%m-%d'))
-        except Exception:
-            base_date = datetime.strptime(date_str, '%Y-%m-%d') + timedelta(hours=5, minutes=30)
+        from datetime import time as dtime
+        base_date = IST.localize(datetime.strptime(date_str, '%Y-%m-%d'))
         # Assign slots in order: 11:00, 16:00, 21:00, repeat
         slot_times = [dtime(11,0), dtime(16,0), dtime(21,0)]
         ids = list(range(start_id, end_id+1))
