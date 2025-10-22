@@ -58,8 +58,8 @@ python bot.py
 ## How it works
 
 -   Owner sends a photo/video/animation in the bot's DM.
--   Bot stores the Telegram file_id and schedules it for the next available slot: 11:00, 16:00, 21:00. If there's an existing scheduled meme, new ones are scheduled after the last one using the same cycle.
--   A background task posts due memes into the configured channel.
+-   Bot stores the Telegram file_id and schedules it for the next available slot: **11:00, 16:00, 21:00 IST (India Standard Time)**. If there's an existing scheduled meme, new ones are scheduled after the last one using the same cycle.
+-   A background task posts due memes into the configured channel at the scheduled IST times.
 
 ## Docker Implementation
 
@@ -75,6 +75,7 @@ The Docker implementation ensures consistent behavior across different environme
 
 ## Notes
 
--   Times are computed using server local time. Stored timestamps are Unix timestamps.
+-   All times are in **IST (India Standard Time, UTC+5:30)** regardless of the server's timezone.
+-   Stored timestamps are Unix timestamps (UTC).
 -   Make sure the bot is admin in the channel to post messages.
 -   When using Docker, the database is stored in `./data/memes.db` on the host machine.
