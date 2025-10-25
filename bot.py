@@ -46,6 +46,9 @@ async def init_db():
         col_names = [c[1] for c in cols]
         if 'preview_file_id' not in col_names:
             await db.execute("ALTER TABLE memes ADD COLUMN preview_file_id TEXT")
+        # Ensure caption column exists (migration)
+        if 'caption' not in col_names:
+            await db.execute("ALTER TABLE memes ADD COLUMN caption TEXT")
         await db.commit()
 
 async def compute_next_slot(after_dt: Optional[datetime] = None) -> datetime:
@@ -76,7 +79,7 @@ async def get_last_scheduled_ts(db) -> Optional[int]:
         row = await cur.fetchone()
         return row[0] if row else None
 
-async def schedule_meme(owner_file_id: str, mime_type: str) -> datetime:
+async def schedule_meme(owner_file_id: str, mime_type: str, caption: Optional[str] = None) -> datetime:
     async with aiosqlite.connect(DB_PATH) as db:
         await init_db()
         # Always schedule after the latest scheduled meme, even if it's far in the future
@@ -95,8 +98,8 @@ async def schedule_meme(owner_file_id: str, mime_type: str) -> datetime:
         preview_file_id = owner_file_id
 
         await db.execute(
-            "INSERT INTO memes (owner_file_id, mime_type, scheduled_ts, created_ts, preview_file_id) VALUES (?, ?, ?, ?, ?)",
-            (owner_file_id, mime_type, int(next_dt.timestamp()), int(datetime.now(IST).timestamp()), preview_file_id),
+            "INSERT INTO memes (owner_file_id, mime_type, scheduled_ts, created_ts, preview_file_id, caption) VALUES (?, ?, ?, ?, ?, ?)",
+            (owner_file_id, mime_type, int(next_dt.timestamp()), int(datetime.now(IST).timestamp()), preview_file_id, caption),
         )
         await db.commit()
     return next_dt
@@ -105,29 +108,45 @@ async def pop_due_memes_and_post(context: ContextTypes.DEFAULT_TYPE):
     now_ts = int(datetime.now(IST).timestamp())
     async with aiosqlite.connect(DB_PATH) as db:
         await init_db()
-        async with db.execute("SELECT id, owner_file_id, mime_type FROM memes WHERE posted=0 AND scheduled_ts<=? ORDER BY scheduled_ts ASC", (now_ts,)) as cur:
-            rows = await cur.fetchall()
+        # Check if caption column exists
+        async with db.execute("PRAGMA table_info(memes)") as cur:
+            cols = await cur.fetchall()
+        col_names = [c[1] for c in cols]
+        has_caption = 'caption' in col_names
+        
+        if has_caption:
+            async with db.execute("SELECT id, owner_file_id, mime_type, caption FROM memes WHERE posted=0 AND scheduled_ts<=? ORDER BY scheduled_ts ASC", (now_ts,)) as cur:
+                rows = await cur.fetchall()
+        else:
+            async with db.execute("SELECT id, owner_file_id, mime_type FROM memes WHERE posted=0 AND scheduled_ts<=? ORDER BY scheduled_ts ASC", (now_ts,)) as cur:
+                rows = await cur.fetchall()
+                
         for row in rows:
-            mid, file_id, mime = row
+            if has_caption:
+                mid, file_id, mime, caption = row
+            else:
+                mid, file_id, mime = row
+                caption = None
+                
             try:
                 sent = False
                 # Try video first when appropriate
                 if mime and mime.startswith("video"):
                     try:
-                        await context.bot.send_video(CHANNEL_ID, file_id)
+                        await context.bot.send_video(CHANNEL_ID, file_id, caption=caption)
                         sent = True
                     except Exception as e_video:
                         logger.warning("send_video failed for id=%s: %s", mid, e_video)
                 if not sent:
                     # try as photo/animation
                     try:
-                        await context.bot.send_photo(CHANNEL_ID, file_id)
+                        await context.bot.send_photo(CHANNEL_ID, file_id, caption=caption)
                         sent = True
                     except Exception as e_photo:
                         logger.warning("send_photo failed for id=%s: %s", mid, e_photo)
                         # fallback to sending as document
                         try:
-                            await context.bot.send_document(CHANNEL_ID, file_id)
+                            await context.bot.send_document(CHANNEL_ID, file_id, caption=caption)
                             sent = True
                         except Exception as e_doc:
                             logger.warning("send_document failed for id=%s: %s", mid, e_doc)
@@ -154,16 +173,20 @@ async def scheduled(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async with aiosqlite.connect(DB_PATH) as db:
         await init_db()
-        # Check if preview_file_id column exists to avoid sqlite errors on older DBs
+        # Check if preview_file_id and caption columns exist to avoid sqlite errors on older DBs
         async with db.execute("PRAGMA table_info(memes)") as pcur:
             cols = await pcur.fetchall()
         col_names = [c[1] for c in cols]
-        if 'preview_file_id' in col_names:
+        has_preview = 'preview_file_id' in col_names
+        has_caption = 'caption' in col_names
+        
+        if has_preview and has_caption:
+            query = "SELECT id, scheduled_ts, mime_type, preview_file_id, caption FROM memes WHERE posted=0 ORDER BY scheduled_ts ASC"
+        elif has_preview:
             query = "SELECT id, scheduled_ts, mime_type, preview_file_id FROM memes WHERE posted=0 ORDER BY scheduled_ts ASC"
-            has_preview = True
         else:
             query = "SELECT id, scheduled_ts, mime_type FROM memes WHERE posted=0 ORDER BY scheduled_ts ASC"
-            has_preview = False
+            
         async with db.execute(query) as cur:
             rows = await cur.fetchall()
 
@@ -173,11 +196,15 @@ async def scheduled(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # For each scheduled item, try to send a preview robustly (direct send, then download+reupload)
     for row in rows:
-        if has_preview:
+        if has_preview and has_caption:
+            mid, ts, mtype, preview_id, user_caption = row
+        elif has_preview:
             mid, ts, mtype, preview_id = row
+            user_caption = None
         else:
             mid, ts, mtype = row
             preview_id = None
+            user_caption = None
 
         # Fallback: if preview_id is missing/null, use owner_file_id
         async with aiosqlite.connect(DB_PATH) as db:
@@ -187,7 +214,11 @@ async def scheduled(update: Update, context: ContextTypes.DEFAULT_TYPE):
         owner_file_id = owner_row[0] if owner_row else None
         file_id = preview_id if preview_id else owner_file_id
 
-        caption = f"ID: {mid}, Time: {datetime.fromtimestamp(ts, tz=IST).strftime('%Y-%m-%d %H:%M:%S IST')}, Type: {mtype}"
+        # Build caption with ID, time, type and user's caption if present
+        caption_parts = [f"ID: {mid}", f"Time: {datetime.fromtimestamp(ts, tz=IST).strftime('%Y-%m-%d %H:%M:%S IST')}", f"Type: {mtype}"]
+        if user_caption:
+            caption_parts.append(f"Caption: {user_caption}")
+        caption = ", ".join(caption_parts)
 
         sent = False
         # Try direct sends with fallbacks
@@ -347,7 +378,8 @@ async def helpcmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 <b>Scheduling Memes:</b>
   <b>Send a photo/video/animation</b> (as a DM to the bot):
     Schedules it for the next available slot (11:00, 16:00, 21:00 IST).
-    <i>Example:</i> Send a meme to the bot in DM.
+    Add a caption to include it with the post.
+    <i>Example:</i> Send a meme to the bot in DM with or without caption.
 
   <b>/scheduled</b> — List all scheduled memes with previews and their IDs, times, and types.
 
@@ -390,6 +422,8 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Determine the best file id and mime
     file_id = None
     mime = None
+    caption = msg.caption  # Get caption if present
+    
     if msg.photo:
         # highest resolution
         file = msg.photo[-1]
@@ -405,7 +439,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("Please send a photo, animation (GIF) or video.")
         return
 
-    scheduled_dt = await schedule_meme(file_id, mime)
+    scheduled_dt = await schedule_meme(file_id, mime, caption)
     # scheduled_dt is already in IST timezone
     await msg.reply_text(f"Scheduled for: {scheduled_dt.strftime('%Y-%m-%d %H:%M:%S IST')}")
 
